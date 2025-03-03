@@ -3,19 +3,329 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light Theme - Elegant Cream/Beige Journal */
+  --background: 40 30% 97%;
+  --foreground: 35 25% 15%;
+
+  --card: 38 25% 94%;
+  --card-foreground: 35 25% 15%;
+
+  --popover: 40 30% 97%;
+  --popover-foreground: 35 25% 15%;
+
+  /* Warm amber as primary */
+  --primary: 30 90% 45%;
+  --primary-foreground: 40 30% 97%;
+
+  /* Soft teal as secondary */
+  --secondary: 175 65% 55%;
+  --secondary-foreground: 35 25% 15%;
+
+  --muted: 38 25% 88%;
+  --muted-foreground: 35 25% 40%;
+
+  /* Muted rose accent */
+  --accent: 340 45% 55%;
+  --accent-foreground: 40 30% 97%;
+
+  --destructive: 0 85% 55%;
+  --destructive-foreground: 40 30% 97%;
+
+  --border: 38 25% 82%;
+  --input: 38 25% 82%;
+  --ring: 30 90% 45%;
+
+  --radius: 0.5rem;
+
+  /* Elegant journal-like glow */
+  --journal-glow: 0 0 15px rgba(255, 170, 60, 0.15);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+.dark {
+  /* Dark Theme - Navy Blue (#171a3d) Journal */
+  --background: 235 45% 17%; /* This is close to #171a3d */
+  --foreground: 220 25% 90%;
+
+  --card: 235 45% 15%;
+  --card-foreground: 220 25% 90%;
+
+  --popover: 235 45% 17%;
+  --popover-foreground: 220 25% 90%;
+
+  /* Soft gold as primary */
+  --primary: 45 80% 55%;
+  --primary-foreground: 235 45% 17%;
+
+  /* Lavender as secondary */
+  --secondary: 260 50% 65%;
+  --secondary-foreground: 220 25% 90%;
+
+  --muted: 235 35% 25%;
+  --muted-foreground: 220 25% 75%;
+
+  /* Soft mint accent */
+  --accent: 150 50% 55%;
+  --accent-foreground: 220 25% 90%;
+
+  --destructive: 0 85% 55%;
+  --destructive-foreground: 220 25% 90%;
+
+  --border: 235 45% 25%;
+  --input: 235 45% 25%;
+  --ring: 45 80% 55%;
+
+  /* Sophisticated ink-like glow effects */
+  --journal-glow: 0 0 20px rgba(255, 215, 130, 0.15);
+  --accent-glow: 0 0 18px rgba(120, 255, 150, 0.15);
+  --secondary-glow: 0 0 18px rgba(180, 145, 255, 0.15);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground transition-colors duration-300;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+/* Journal specific components */
+@layer components {
+  /* Journal entry card */
+  .journal-card {
+    @apply rounded-xl border p-4 transition-all duration-300;
+  }
+
+  html.light .journal-card {
+    @apply bg-card hover:shadow-md;
+    border-color: rgba(180, 130, 60, 0.15);
+  }
+
+  html.dark .journal-card {
+    @apply bg-card;
+    border-color: rgba(255, 215, 130, 0.18);
+    box-shadow: none;
+  }
+
+  html.dark .journal-card:hover {
+    box-shadow: var(--journal-glow);
+  }
+
+  /* Journal header */
+  .journal-header {
+    @apply text-3xl font-bold mb-4;
+  }
+
+  html.light .journal-header {
+    @apply text-primary;
+    text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  html.dark .journal-header {
+    @apply text-primary;
+    text-shadow: 0 0 12px rgba(255, 215, 130, 0.35);
+  }
+
+  /* Date display */
+  .date-display {
+    @apply text-sm font-medium;
+  }
+
+  html.light .date-display {
+    @apply text-muted-foreground;
+  }
+
+  html.dark .date-display {
+    @apply text-muted-foreground;
+  }
+
+  /* Journal editor */
+  .journal-editor {
+    @apply w-full rounded-lg border p-3 transition-all duration-300 min-h-[150px] focus:outline-none focus:ring-2;
+  }
+
+  html.light .journal-editor {
+    @apply bg-card border-input focus:ring-primary/60;
+    box-shadow: inset 0 1px 3px rgba(180, 130, 60, 0.07);
+  }
+
+  html.dark .journal-editor {
+    @apply bg-card border-input focus:ring-primary/60;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Buttons themed for journal */
+  .btn-journal-primary {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-300;
+  }
+
+  html.light .btn-journal-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+    box-shadow: 0 2px 5px rgba(180, 130, 60, 0.15);
+  }
+
+  html.dark .btn-journal-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  }
+
+  html.light .btn-journal-primary:hover {
+    box-shadow: 0 3px 7px rgba(180, 130, 60, 0.2), var(--journal-glow);
+  }
+
+  html.dark .btn-journal-primary:hover {
+    box-shadow: 0 3px 7px rgba(23, 26, 61, 0.25), var(--journal-glow);
+  }
+
+  /* Journal sidebar */
+  .journal-sidebar {
+    @apply h-full w-64 fixed top-0 left-0 transition-all duration-300 p-4 border-r;
+  }
+
+  html.light .journal-sidebar {
+    @apply bg-card border-border;
+    box-shadow: 2px 0 8px rgba(180, 130, 60, 0.07);
+  }
+
+  html.dark .journal-sidebar {
+    @apply bg-card border-border;
+    box-shadow: 2px 0 12px rgba(23, 26, 61, 0.35);
+  }
+
+  /* Calendar day cell */
+  .calendar-day {
+    @apply w-10 h-10 flex items-center justify-center rounded-full transition-all duration-200;
+  }
+
+  html.light .calendar-day.active {
+    @apply bg-primary text-primary-foreground;
+    box-shadow: 0 2px 5px rgba(180, 130, 60, 0.15), var(--journal-glow);
+  }
+
+  html.dark .calendar-day.active {
+    @apply bg-primary text-primary-foreground;
+    box-shadow: var(--journal-glow);
+  }
+
+  html.light .calendar-day:hover:not(.active) {
+    @apply bg-muted;
+  }
+
+  html.dark .calendar-day:hover:not(.active) {
+    @apply bg-muted;
+  }
+
+  /* Journal mood selector */
+  .mood-selector {
+    @apply flex space-x-3 my-3;
+  }
+
+  .mood-item {
+    @apply w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer;
+  }
+
+  html.light .mood-item {
+    @apply bg-muted hover:bg-muted/80;
+  }
+
+  html.dark .mood-item {
+    @apply bg-muted hover:bg-muted/80;
+  }
+
+  html.light .mood-item.selected {
+    @apply bg-secondary text-secondary-foreground;
+    box-shadow: 0 2px 5px rgba(120, 180, 200, 0.2);
+  }
+
+  html.dark .mood-item.selected {
+    @apply bg-secondary text-secondary-foreground;
+    box-shadow: var(--secondary-glow);
+  }
+
+  /* Gradient accents for journal elements */
+  html.light .journal-accent-border {
+    border-image: linear-gradient(
+        to right,
+        rgba(255, 170, 60, 0.7),
+        rgba(255, 120, 170, 0.5)
+      )
+      1;
+  }
+
+  html.dark .journal-accent-border {
+    border-image: linear-gradient(
+        to right,
+        rgba(255, 215, 130, 0.7),
+        rgba(180, 145, 255, 0.5)
+      )
+      1;
+  }
+
+  /* Tag pills for journal entries */
+  .journal-tag {
+    @apply px-2 py-1 text-xs rounded-full inline-block mr-2 mb-2 transition-all duration-200;
+  }
+
+  html.light .journal-tag {
+    @apply bg-muted text-muted-foreground hover:bg-secondary/30;
+  }
+
+  html.dark .journal-tag {
+    @apply bg-muted text-muted-foreground hover:bg-secondary/30;
+    box-shadow: 0 0 5px rgba(180, 145, 255, 0.1);
+  }
+
+  html.dark .journal-tag:hover {
+    box-shadow: var(--secondary-glow);
+  }
+
+  /* Decorative quotation styling */
+  .journal-quote {
+    @apply italic pl-4 border-l-2 my-3;
+  }
+
+  html.light .journal-quote {
+    @apply border-primary/40 text-foreground/80;
+  }
+
+  html.dark .journal-quote {
+    @apply border-primary/40 text-foreground/80;
+  }
+
+  /* Page transition effect */
+  .page-transition {
+    @apply transition-opacity duration-500;
+  }
+
+  /* Entry title styling */
+  .entry-title {
+    @apply text-xl font-medium mb-2;
+  }
+
+  html.light .entry-title {
+    @apply text-foreground;
+  }
+
+  html.dark .entry-title {
+    @apply text-foreground;
+  }
+
+  /* Image gallery for journal entries */
+  .journal-gallery {
+    @apply grid grid-cols-3 gap-2 my-3;
+  }
+
+  .journal-gallery-item {
+    @apply rounded-md overflow-hidden transition-all duration-300;
+  }
+
+  html.light .journal-gallery-item:hover {
+    box-shadow: var(--journal-glow);
+    transform: scale(1.02);
+  }
+
+  html.dark .journal-gallery-item:hover {
+    box-shadow: var(--journal-glow);
+    transform: scale(1.02);
+  }
 }
