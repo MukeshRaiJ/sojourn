@@ -5,7 +5,7 @@ import { persist } from "zustand/middleware";
 export type JournalEntry = {
   id: string;
   title: string;
-  content: string; // HTML content for rich text
+  content: string; // Store content as a string (serialized JSON for rich text)
   createdAt: Date;
   updatedAt: Date;
   tags: string[];
@@ -35,6 +35,8 @@ export interface JournalSettings {
   entryGoal: number;
   useTemplates: boolean;
   defaultSortOrder: "newest" | "oldest" | "alphabetical";
+  editorTheme: "light" | "dark" | "system"; // New setting for editor theme
+  fontFamily: string; // New setting for font preference
 }
 
 // Default settings
@@ -44,6 +46,8 @@ const DEFAULT_SETTINGS: JournalSettings = {
   entryGoal: 5,
   useTemplates: false,
   defaultSortOrder: "newest",
+  editorTheme: "system",
+  fontFamily: "default",
 };
 
 // Type for validating imported entries
@@ -110,12 +114,36 @@ const DEFAULT_ENTRY: Omit<JournalEntry, "id"> = {
 // Template for new entries when templates are enabled
 const TEMPLATE_ENTRY: Omit<JournalEntry, "id"> = {
   title: "New Entry",
-  content: `<h2>Today's Journal</h2>
-<p>How am I feeling today?</p>
-<p>What went well today?</p>
-<p>What could have gone better?</p>
-<p>What am I grateful for?</p>
-<p>What are my goals for tomorrow?</p>`,
+  content: JSON.stringify({
+    type: "doc",
+    content: [
+      {
+        type: "heading",
+        attrs: { level: 2 },
+        content: [{ type: "text", text: "Today's Journal" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "How am I feeling today?" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "What went well today?" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "What could have gone better?" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "What am I grateful for?" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "What are my goals for tomorrow?" }],
+      },
+    ],
+  }),
   createdAt: new Date(),
   updatedAt: new Date(),
   tags: ["daily"],
@@ -134,6 +162,20 @@ function isValidJournalEntry(entry: unknown): entry is JournalEntry {
     typeof e.title === "string" &&
     typeof e.content === "string"
   );
+}
+
+// Helper function to ensure content is stored as a string
+function ensureContentString(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  try {
+    return JSON.stringify(content);
+  } catch (e) {
+    console.error("Error stringifying content:", e);
+    return "";
+  }
 }
 
 export const useJournalStore = create<JournalState>()(
@@ -199,16 +241,26 @@ export const useJournalStore = create<JournalState>()(
       },
 
       updateEntry: (id, updates) => {
+        // Ensure content is stored as a string
+        const processedUpdates = { ...updates };
+        if (updates.content !== undefined) {
+          processedUpdates.content = ensureContentString(updates.content);
+        }
+
         set((state) => {
           const updatedEntries = state.entries.map((entry) =>
             entry.id === id
-              ? { ...entry, ...updates, updatedAt: new Date() }
+              ? { ...entry, ...processedUpdates, updatedAt: new Date() }
               : entry
           );
 
           const updatedCurrentEntry =
             state.currentEntry && state.currentEntry.id === id
-              ? { ...state.currentEntry, ...updates, updatedAt: new Date() }
+              ? {
+                  ...state.currentEntry,
+                  ...processedUpdates,
+                  updatedAt: new Date(),
+                }
               : state.currentEntry;
 
           return {

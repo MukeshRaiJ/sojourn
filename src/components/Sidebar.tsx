@@ -1034,12 +1034,7 @@ export function Sidebar(): JSX.Element {
                     />
                   )}
                 </div>
-
-                <div className="text-xs text-muted-foreground/90 truncate leading-relaxed">
-                  {entry.content ? entry.content.substring(0, 50) : ""}
-                  {entry.content && entry.content.length > 50 ? "..." : ""}
-                </div>
-
+                <div className="text-xs text-muted-foreground/90 truncate leading-relaxed"></div>
                 <div className="flex items-center justify-between mt-1">
                   <div className="flex items-center text-xs text-muted-foreground bg-muted/40 rounded-md px-1.5 py-0.5">
                     <Calendar className="h-2.5 w-2.5 mr-1" />
@@ -1450,7 +1445,6 @@ export function Sidebar(): JSX.Element {
               </p>
             </div>
           )}
-
           <DialogFooter>
             <Button
               variant="outline"
