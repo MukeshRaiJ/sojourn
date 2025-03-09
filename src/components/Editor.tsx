@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useJournalStore, type JournalEntry } from "@/lib/store/journalStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { JSONContent } from "@tiptap/react";
-import FloatingEditor, { FloatingEditorRef } from "@/lib/FloatingSlateEditor";
+import EditorJSWrapper, {
+  EditorJSWrapperRef,
+} from "@/components/EditorWrapper";
+import { OutputData } from "@editorjs/editorjs";
 import {
   Edit,
   Save,
@@ -24,10 +26,14 @@ import {
   RotateCcw,
   Clock,
   FileText,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { debounce } from "lodash";
 import {
   Popover,
   PopoverContent,
@@ -47,17 +53,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type MoodType = "happy" | "neutral" | "sad" | "excited" | "anxious" | undefined;
 
 export function Editor() {
+  // Get store functions and current entry
   const {
     currentEntry,
     isEditing,
@@ -73,12 +86,12 @@ export function Editor() {
   } = useJournalStore();
 
   const [title, setTitle] = useState<string>("");
-  const [content, setContent] = useState<JSONContent | null>(null);
+  const [content, setContent] = useState<OutputData | null>(null);
   const [tagInput, setTagInput] = useState<string>("");
   const [tags, setTags] = useState<string[]>([]);
   const [mood, setMood] = useState<MoodType>(undefined);
   const [isFavorite, setIsFavorite] = useState<boolean>(false);
-  const [images, setImages] = useState<string[]>([]);
+  const [images, setImages] = useState<string[]>([]); // Store actual images, not IDs
   const [location, setLocation] = useState<JournalEntry["location"]>(undefined);
   const [weather, setWeather] = useState<JournalEntry["weather"]>(undefined);
 
@@ -92,70 +105,70 @@ export function Editor() {
   );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<FloatingEditorRef>(null);
+  const editorRef = useRef<EditorJSWrapperRef>(null);
   const hasUnsavedChanges = useRef<boolean>(false);
+  const editorInstanceKey = useRef(Date.now().toString()); // Key to force editor recreation
 
   const [locationName, setLocationName] = useState<string>("");
   const [weatherCondition, setWeatherCondition] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0);
   const [weatherIcon, setWeatherIcon] = useState<string>("");
 
-  const parseContentToJSON = (contentStr: string): JSONContent => {
-    if (!contentStr) {
-      return {
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-          },
-        ],
-      };
-    }
+  // Create a debounced version of setContent to prevent losing focus
+  const debouncedSetContent = useCallback(
+    debounce((newContent: OutputData) => {
+      setContent(newContent);
+    }, 300),
+    []
+  );
 
-    try {
-      return JSON.parse(contentStr);
-    } catch (e) {
-      console.log("Content parsing error:", e);
-
-      return {
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-            content: [{ type: "text", text: contentStr }],
+  const getDefaultEditorContent = (): OutputData => {
+    return {
+      time: new Date().getTime(),
+      blocks: [
+        {
+          type: "paragraph",
+          data: {
+            text: "",
           },
-        ],
-      };
-    }
+        },
+      ],
+      version: "2.27.0",
+    };
   };
 
+  // Initialize state when currentEntry changes
   useEffect(() => {
     if (currentEntry) {
-      setTitle(currentEntry.title);
+      setTitle(currentEntry.title || "");
 
+      // Parse content from string (important - JournalStore.content is a string)
       try {
-        const parsedContent = parseContentToJSON(currentEntry.content);
+        const parsedContent = currentEntry.content
+          ? JSON.parse(currentEntry.content as string)
+          : getDefaultEditorContent();
         setContent(parsedContent);
-      } catch (error) {
-        console.error("Failed to parse entry content:", error);
-        setContent({
-          type: "doc",
-          content: [{ type: "paragraph" }],
-        });
+      } catch (e) {
+        console.error("Failed to parse entry content:", e);
+        setContent(getDefaultEditorContent());
       }
 
       setTags(currentEntry.tags || []);
       setMood(currentEntry.mood as MoodType);
-      setIsFavorite(currentEntry.isFavorite);
-      setImages(currentEntry.images || []);
+      setIsFavorite(currentEntry.isFavorite || false);
+      setImages(currentEntry.images || []); // Set actual images array
       setLocation(currentEntry.location);
       setWeather(currentEntry.weather);
       hasUnsavedChanges.current = false;
+
+      // Create a new editor instance when changing entries
+      editorInstanceKey.current = Date.now().toString();
     } else {
       resetForm();
     }
-  }, [currentEntry]);
+  }, [currentEntry?.id]); // Only depend on the ID to prevent unneeded reloads
 
+  // Track changes to determine if save is needed
   useEffect(() => {
     if (currentEntry && isEditing) {
       const tagsChanged =
@@ -182,21 +195,22 @@ export function Editor() {
     tags,
     mood,
     isFavorite,
-    images,
+    images, // Changed from imageIds to images
     location,
     weather,
     currentEntry,
     isEditing,
   ]);
 
-  // Save changes when editing is toggled off
+  // Auto-save when exiting edit mode
   useEffect(() => {
     if (!isEditing && currentEntry && hasUnsavedChanges.current) {
       saveChanges();
-      hasUnsavedChanges.current = false; // Reset after saving
+      hasUnsavedChanges.current = false;
     }
-  }, [isEditing, currentEntry]); // Removed saveChanges from dependency array to prevent redundant calls
+  }, [isEditing, currentEntry?.id]);
 
+  // Warn about unsaved changes before leaving page
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges.current) {
@@ -213,9 +227,16 @@ export function Editor() {
     };
   }, []);
 
+  // Cleanup debounced function on component unmount
+  useEffect(() => {
+    return () => {
+      debouncedSetContent.cancel();
+    };
+  }, [debouncedSetContent]);
+
   const resetForm = () => {
     setTitle("");
-    setContent(null);
+    setContent(getDefaultEditorContent());
     setTagInput("");
     setTags([]);
     setMood(undefined);
@@ -224,6 +245,7 @@ export function Editor() {
     setLocation(undefined);
     setWeather(undefined);
     hasUnsavedChanges.current = false;
+    editorInstanceKey.current = Date.now().toString();
   };
 
   const addTag = () => {
@@ -248,47 +270,84 @@ export function Editor() {
     }
   };
 
-  const handleEditorChange = (newContent: JSONContent) => {
-    setContent(newContent);
+  // Modified to use debounced content updates
+  const handleEditorChange = (newContent: OutputData) => {
+    // Mark as having unsaved changes immediately
+    hasUnsavedChanges.current = true;
+
+    // Use debounced function to update state
+    debouncedSetContent(newContent);
+  };
+
+  // Handle title changes from EditorWrapper
+  const handleTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
     hasUnsavedChanges.current = true;
   };
 
-  const saveChanges = () => {
+  const saveChanges = async () => {
     if (!currentEntry) return;
-
     setSaving(true);
 
-    let finalContent: string;
-
     try {
+      let finalContent: OutputData;
+      let contentString: string;
+      let editorImages: string[] = [];
+
       if (editorRef.current) {
-        const editorContent = editorRef.current.getContent();
-        finalContent = JSON.stringify(editorContent);
+        // Get content from EditorJS
+        finalContent = await editorRef.current.getContent();
+        setContent(finalContent);
+
+        // Convert content to string for storage
+        contentString = JSON.stringify(finalContent);
+
+        // Extract image URLs from the editor content
+        const editorImageUrls = finalContent.blocks
+          .filter(
+            (block) => block.type === "image" && block.data && block.data.url
+          )
+          .map((block) => block.data.url);
+
+        // Identify new base64 images not already in our images array
+        editorImageUrls.forEach((url) => {
+          if (url.startsWith("data:image/") && !images.includes(url)) {
+            editorImages.push(url);
+          }
+        });
       } else if (content) {
-        finalContent = JSON.stringify(content);
+        finalContent = content;
+        contentString = JSON.stringify(finalContent);
       } else {
-        finalContent = currentEntry.content;
+        finalContent = getDefaultEditorContent();
+        contentString = JSON.stringify(finalContent);
       }
+
+      // Combine current images with new ones from editor
+      const allImages = [...images, ...editorImages];
+
+      // Update the entry with all data
+      updateEntry(currentEntry.id, {
+        title,
+        content: contentString, // Store as string
+        tags,
+        mood,
+        isFavorite,
+        images: allImages,
+        location,
+        weather,
+      });
+
+      // Update local state with all images
+      setImages(allImages);
     } catch (error) {
-      console.error("Error serializing editor content:", error);
-      finalContent = currentEntry.content;
+      console.error("Error saving editor content:", error);
+    } finally {
+      setTimeout(() => {
+        setSaving(false);
+        hasUnsavedChanges.current = false;
+      }, 500);
     }
-
-    updateEntry(currentEntry.id, {
-      title,
-      content: finalContent,
-      tags,
-      mood,
-      isFavorite,
-      images,
-      location,
-      weather,
-    });
-
-    setTimeout(() => {
-      setSaving(false);
-      hasUnsavedChanges.current = false;
-    }, 500);
   };
 
   const handleCancelEditing = () => {
@@ -301,11 +360,25 @@ export function Editor() {
 
   const discardChanges = () => {
     if (currentEntry) {
-      setTitle(currentEntry.title);
-      setContent(parseContentToJSON(currentEntry.content));
+      setTitle(currentEntry.title || "");
+
+      // Parse content from string
+      try {
+        const parsedContent = currentEntry.content
+          ? JSON.parse(currentEntry.content as string)
+          : getDefaultEditorContent();
+        setContent(parsedContent);
+      } catch (e) {
+        console.error(
+          "Failed to parse entry content when discarding changes:",
+          e
+        );
+        setContent(getDefaultEditorContent());
+      }
+
       setTags(currentEntry.tags || []);
       setMood(currentEntry.mood as MoodType);
-      setIsFavorite(currentEntry.isFavorite);
+      setIsFavorite(currentEntry.isFavorite || false);
       setImages(currentEntry.images || []);
       setLocation(currentEntry.location);
       setWeather(currentEntry.weather);
@@ -313,6 +386,9 @@ export function Editor() {
       hasUnsavedChanges.current = false;
       setIsEditing(false);
       setShowUnsavedWarning(false);
+
+      // Force editor recreation
+      editorInstanceKey.current = Date.now().toString();
     }
   };
 
@@ -336,6 +412,7 @@ export function Editor() {
     fileInputRef.current?.click();
   };
 
+  // Handle file selection for image upload
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || !files.length || !currentEntry) return;
@@ -347,11 +424,19 @@ export function Editor() {
       if (event.target?.result) {
         const base64String = event.target.result.toString();
 
-        setImages((prev) => [...prev, base64String]);
-
         if (!isEditing) {
+          // In view mode - save directly to store
           addImageToEntry(currentEntry.id, base64String);
+          // Also update local state
+          setImages((prev) => [...prev, base64String]);
         } else {
+          // In edit mode - add to editor and mark changes
+          if (editorRef.current) {
+            editorRef.current.insertImage(base64String);
+          }
+
+          // Also update local state
+          setImages((prev) => [...prev, base64String]);
           hasUnsavedChanges.current = true;
         }
       }
@@ -359,21 +444,22 @@ export function Editor() {
 
     reader.readAsDataURL(file);
 
+    // Clear the file input
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleRemoveImage = (index: number) => {
+  // Remove image using index instead of ID
+  const handleRemoveImage = (imageIndex: number) => {
     if (!currentEntry) return;
 
-    setImages((prev) => {
-      const newImages = [...prev];
-      newImages.splice(index, 1);
-      return newImages;
-    });
+    // Remove from local state
+    setImages((prev) => prev.filter((_, idx) => idx !== imageIndex));
 
     if (!isEditing) {
-      removeImageFromEntry(currentEntry.id, index);
+      // In view mode, update the store
+      removeImageFromEntry(currentEntry.id, imageIndex);
     } else {
+      // In edit mode, mark as having unsaved changes
       hasUnsavedChanges.current = true;
     }
   };
@@ -427,11 +513,6 @@ export function Editor() {
     }
   };
 
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(e.target.value);
-    hasUnsavedChanges.current = true;
-  };
-
   const getMoodIcon = () => {
     switch (mood) {
       case "happy":
@@ -463,13 +544,79 @@ export function Editor() {
     ? getFormattedDate(currentEntry.createdAt)
     : "";
 
+  // Mock image upload callback for EditorJS
+  const handleImageUploadForEditor = async (file: File) => {
+    return new Promise<{ success: number; file: { url: string } }>(
+      (resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            const base64String = event.target.result.toString();
+
+            // We'll handle storing images in the centralized save function
+            // This just returns the data for EditorJS to display
+            resolve({
+              success: 1,
+              file: { url: base64String },
+            });
+          } else {
+            resolve({
+              success: 0,
+              file: { url: "" },
+            });
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    );
+  };
+
+  // Updated image gallery rendering to work with direct image URLs
+  const renderImageGallery = () => {
+    if (!images || images.length === 0) return null;
+
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-6">
+        {images.map((imageUrl, index) => (
+          <div
+            key={index}
+            className="relative aspect-square group overflow-hidden rounded-lg border border-border shadow-sm transition-all duration-200 hover:shadow-md"
+          >
+            <img
+              src={imageUrl}
+              alt={`Journal image ${index + 1}`}
+              className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
+              onClick={() => {
+                setCurrentImageIndex(index);
+                setShowImageUpload(true);
+              }}
+            />
+            {isEditing && (
+              <button
+                className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveImage(index);
+                }}
+              >
+                <X className="h-3.5 w-3.5 text-white" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   if (!currentEntry) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-muted-foreground">
         <div className="text-center">
-          <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-          <h2 className="text-xl font-medium mb-2">No Entry Selected</h2>
-          <p>Select an entry from the sidebar or create a new one.</p>
+          <FileText className="h-16 w-16 mx-auto mb-6 text-muted-foreground/50" />
+          <h2 className="text-2xl font-medium mb-3">No Entry Selected</h2>
+          <p className="text-lg">
+            Select an entry from the sidebar or create a new one.
+          </p>
         </div>
       </div>
     );
@@ -479,15 +626,15 @@ export function Editor() {
     <TooltipProvider>
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header Bar */}
-        <div className="border-b p-4 flex justify-between items-center bg-background/95 backdrop-blur supports-backdrop-blur:bg-background/60 sticky top-0 z-10">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="border-b px-4 py-3 flex justify-between items-center bg-background/95 backdrop-blur supports-backdrop-blur:bg-background/60 sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center gap-3">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={handleFavoriteToggle}
-                  className="h-8 w-8"
+                  className="h-9 w-9 rounded-full"
                   aria-label={
                     isFavorite ? "Remove from favorites" : "Add to favorites"
                   }
@@ -510,7 +657,7 @@ export function Editor() {
             <div className="flex items-center text-sm text-muted-foreground">
               <Tooltip>
                 <TooltipTrigger className="flex items-center">
-                  <Clock className="h-4 w-4 mr-1" />
+                  <Clock className="h-4 w-4 mr-1.5" />
                   <span>Last edited on {formattedDate}</span>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -522,62 +669,69 @@ export function Editor() {
 
           <div className="flex items-center gap-2">
             {currentEntry.isDeleted ? (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRestoreEntry}
-                >
-                  <RotateCcw className="h-4 w-4 mr-1" />
-                  <span>Restore</span>
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handlePermanentlyDeleteEntry}
-                >
-                  <Trash className="h-4 w-4 mr-1" />
-                  <span>Delete Permanently</span>
-                </Button>
-              </>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Menu className="h-4 w-4 mr-1.5" />
+                    Actions
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleRestoreEntry}>
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Restore
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={handlePermanentlyDeleteEntry}
+                  >
+                    <Trash className="h-4 w-4 mr-2" />
+                    Delete Permanently
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : isEditing ? (
               <>
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={handleCancelEditing}
+                  disabled={saving}
+                  className="hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <X className="h-4 w-4 mr-1.5" />
+                  <span>Cancel</span>
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
                   onClick={saveChanges}
                   disabled={saving}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   {saving ? (
                     <span className="flex items-center">
-                      <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                      <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent"></div>
                       Saving...
                     </span>
                   ) : (
                     <>
-                      <Save className="h-4 w-4 mr-1" />
+                      <Save className="h-4 w-4 mr-1.5" />
                       <span>Save</span>
                     </>
                   )}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancelEditing}
-                  disabled={saving}
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  <span>Cancel</span>
-                </Button>
               </>
             ) : (
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={() => setIsEditing(true)}
                 disabled={currentEntry.isDeleted}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
-                <Edit className="h-4 w-4 mr-1" />
+                <Edit className="h-4 w-4 mr-1.5" />
                 <span>Edit</span>
               </Button>
             )}
@@ -586,306 +740,262 @@ export function Editor() {
 
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
-          <div className="max-w-4xl mx-auto w-full p-6">
+          <div className="max-w-4xl mx-auto w-full pt-8 pb-16 px-6">
             {isEditing ? (
-              <div className="space-y-6">
-                {/* New Integrated Editor UI */}
-                <div className="border border-border rounded-lg shadow-sm overflow-hidden transition-all duration-300 hover:shadow-md focus-within:shadow-md focus-within:border-primary/50">
-                  {/* Editor Header with Title and Metadata */}
-                  <div className="p-6 border-b">
-                    <input
-                      value={title}
-                      onChange={handleTitleChange}
-                      placeholder="Entry Title"
-                      className="text-3xl font-semibold w-full border-none p-0 mb-4 focus:outline-none bg-transparent"
-                    />
+              <div className="space-y-8">
+                {/* Title input moved to EditorWrapper */}
+                {/* Metadata controls */}
+                <div className="flex flex-wrap gap-2 bg-muted/30 p-3 rounded-lg shadow-sm border border-border">
+                  {/* Mood Selection */}
+                  <Select value={mood} onValueChange={handleMoodChange}>
+                    <SelectTrigger className="w-36 h-9 bg-background">
+                      <SelectValue placeholder="Select mood" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="happy">
+                        <div className="flex items-center">
+                          <Smile className="h-4 w-4 text-green-500 mr-2" />
+                          Happy
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="neutral">
+                        <div className="flex items-center">
+                          <Meh className="h-4 w-4 text-blue-500 mr-2" />
+                          Neutral
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="sad">
+                        <div className="flex items-center">
+                          <Frown className="h-4 w-4 text-red-500 mr-2" />
+                          Sad
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="excited">
+                        <div className="flex items-center">
+                          <Heart className="h-4 w-4 text-pink-500 mr-2" />
+                          Excited
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="anxious">
+                        <div className="flex items-center">
+                          <AlertCircle className="h-4 w-4 text-amber-500 mr-2" />
+                          Anxious
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
 
-                    <div className="flex flex-wrap items-center gap-3 mt-4">
-                      {/* Mood Selection */}
-                      <Select value={mood} onValueChange={handleMoodChange}>
-                        <SelectTrigger className="w-36">
-                          <SelectValue placeholder="Select mood" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="happy">
-                            <div className="flex items-center">
-                              <Smile className="h-4 w-4 text-green-500 mr-2" />
-                              Happy
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="neutral">
-                            <div className="flex items-center">
-                              <Meh className="h-4 w-4 text-blue-500 mr-2" />
-                              Neutral
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="sad">
-                            <div className="flex items-center">
-                              <Frown className="h-4 w-4 text-red-500 mr-2" />
-                              Sad
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="excited">
-                            <div className="flex items-center">
-                              <Heart className="h-4 w-4 text-pink-500 mr-2" />
-                              Excited
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="anxious">
-                            <div className="flex items-center">
-                              <AlertCircle className="h-4 w-4 text-amber-500 mr-2" />
-                              Anxious
-                            </div>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      {/* Tag Management */}
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            <TagIcon className="h-4 w-4 mr-1" />
-                            Add Tags
+                  {/* Tag Management */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 bg-background"
+                      >
+                        <TagIcon className="h-4 w-4 mr-1.5" />
+                        Tags {tags.length > 0 && `(${tags.length})`}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-72">
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-sm">Manage Tags</h4>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Enter tag name"
+                            className="flex-1"
+                          />
+                          <Button size="sm" onClick={addTag}>
+                            Add
                           </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-64">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <Input
-                                value={tagInput}
-                                onChange={(e) => setTagInput(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Enter tag name"
-                                className="flex-1"
-                              />
-                              <Button size="sm" onClick={addTag}>
-                                Add
-                              </Button>
-                            </div>
+                        </div>
 
-                            {tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {tags.map((tag) => (
-                                  <Badge
-                                    key={tag}
-                                    className="flex items-center gap-1"
-                                  >
-                                    {tag}
-                                    <X
-                                      className="h-3 w-3 cursor-pointer"
-                                      onClick={() => removeTag(tag)}
-                                    />
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
+                        {tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-3">
+                            {tags.map((tag) => (
+                              <Badge
+                                key={tag}
+                                className="flex items-center gap-1 px-3 py-1.5"
+                                variant="secondary"
+                              >
+                                {tag}
+                                <X
+                                  className="h-3 w-3 ml-1 cursor-pointer"
+                                  onClick={() => removeTag(tag)}
+                                />
+                              </Badge>
+                            ))}
                           </div>
-                        </PopoverContent>
-                      </Popover>
-
-                      {/* Location Button */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setLocationName(location?.name || "");
-                          setShowLocationInput(true);
-                        }}
-                      >
-                        <MapPin className="h-4 w-4 mr-1" />
-                        {location ? location.name : "Add Location"}
-                      </Button>
-
-                      {/* Weather Button */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (weather) {
-                            setWeatherCondition(weather.condition);
-                            setTemperature(weather.temperature);
-                            setWeatherIcon(weather.icon);
-                          } else {
-                            setWeatherCondition("");
-                            setTemperature(0);
-                            setWeatherIcon("");
-                          }
-                          setShowWeatherInput(true);
-                        }}
-                      >
-                        <Cloud className="h-4 w-4 mr-1" />
-                        {weather
-                          ? `${weather.condition}, ${weather.temperature}°`
-                          : "Add Weather"}
-                      </Button>
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        style={{ display: "none" }}
-                        accept="image/*"
-                        onChange={handleFileChange}
-                      />
-                    </div>
-
-                    {/* Display tags */}
-                    {tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-3">
-                        {tags.map((tag) => (
-                          <Badge key={tag} variant="secondary">
-                            {tag}
-                          </Badge>
-                        ))}
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </PopoverContent>
+                  </Popover>
 
-                  {/* Editor Content */}
-                  <FloatingEditor
-                    ref={editorRef}
-                    initialContent={content}
-                    placeholder="Write your thoughts..."
-                    onChange={handleEditorChange}
-                    className="min-h-[400px] p-4"
-                    showMainToolbar={true}
+                  {/* Location Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 bg-background"
+                    onClick={() => {
+                      setLocationName(location?.name || "");
+                      setShowLocationInput(true);
+                    }}
+                  >
+                    <MapPin className="h-4 w-4 mr-1.5" />
+                    {location ? location.name : "Add Location"}
+                  </Button>
+
+                  {/* Weather Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 bg-background"
+                    onClick={() => {
+                      if (weather) {
+                        setWeatherCondition(weather.condition);
+                        setTemperature(weather.temperature);
+                        setWeatherIcon(weather.icon);
+                      } else {
+                        setWeatherCondition("");
+                        setTemperature(0);
+                        setWeatherIcon("🌤️");
+                      }
+                      setShowWeatherInput(true);
+                    }}
+                  >
+                    <Cloud className="h-4 w-4 mr-1.5" />
+                    {weather
+                      ? `${weather.condition}, ${weather.temperature}°`
+                      : "Add Weather"}
+                  </Button>
+
+                  {/* Image Upload Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 bg-background"
+                    onClick={handleImageUpload}
+                  >
+                    <ImageIcon className="h-4 w-4 mr-1.5" />
+                    Add Image
+                  </Button>
+
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: "none" }}
+                    accept="image/*"
+                    onChange={handleFileChange}
                   />
                 </div>
 
-                {/* Images Section */}
-                {images.length > 0 && (
-                  <Card className="mt-8 overflow-hidden">
-                    <CardContent className="p-0">
-                      <div className="p-4 border-b flex items-center justify-between">
-                        <h3 className="text-lg font-medium">Images</h3>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleImageUpload}
-                        >
-                          <ImageIcon className="h-4 w-4 mr-1" />
-                          Add More
-                        </Button>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 p-2">
-                        {images.map((img, index) => (
-                          <div
-                            key={index}
-                            className="relative group rounded-lg overflow-hidden aspect-square"
-                          >
-                            <img
-                              src={img}
-                              alt={`Journal image ${index + 1}`}
-                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <button
-                                className="p-2 bg-red-500 text-white rounded-full transform scale-75 hover:scale-100 transition-all duration-200"
-                                onClick={() => handleRemoveImage(index)}
-                                aria-label="Remove image"
-                              >
-                                <Trash className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-6 pb-16">
-                {/* View mode - Integrated design */}
-                <div className="border border-border rounded-lg shadow-sm overflow-hidden">
-                  {/* Header with title and metadata */}
-                  <div className="p-6 border-b bg-muted/30">
-                    <h1 className="text-3xl font-semibold mb-4">{title}</h1>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      {mood && (
-                        <div className="flex items-center">
-                          {getMoodIcon()}
-                          <span className="ml-1 text-sm">
-                            {mood.charAt(0).toUpperCase() + mood.slice(1)}
-                          </span>
-                        </div>
-                      )}
-
-                      {location && (
-                        <div className="flex items-center text-sm">
-                          <MapPin className="h-4 w-4 mr-1" />
-                          <span>{location.name}</span>
-                        </div>
-                      )}
-
-                      {weather && (
-                        <div className="flex items-center text-sm">
-                          <Cloud className="h-4 w-4 mr-1" />
-                          <span>
-                            {weather.condition}, {weather.temperature}°
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-3">
-                        {tags.map((tag) => (
-                          <Badge key={tag} variant="secondary">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Content area */}
+                {/* Editor Content Area - Now using the title from EditorWrapper */}
+                <div className="border border-border rounded-lg shadow-md overflow-hidden transition-all duration-300 hover:shadow-lg focus-within:ring-2 focus-within:ring-primary/20">
                   <div className="p-6">
-                    <div className="prose prose-sm md:prose-base max-w-none">
-                      <FloatingEditor
-                        initialContent={content}
-                        readOnly={true}
-                        className="min-h-[200px] border-none shadow-none"
-                        showMainToolbar={false}
-                      />
-                    </div>
+                    <EditorJSWrapper
+                      key={editorInstanceKey.current}
+                      ref={editorRef}
+                      initialContent={content}
+                      title={title}
+                      onTitleChange={handleTitleChange}
+                      placeholder="Write your thoughts here..."
+                      onChange={handleEditorChange}
+                      className="min-h-[400px]"
+                      showMainToolbar={true}
+                      imageUploadCallback={handleImageUploadForEditor}
+                      editorId={`editor-${
+                        currentEntry ? currentEntry.id : "new"
+                      }-${editorInstanceKey.current}`}
+                    />
                   </div>
                 </div>
 
-                {/* Images Section */}
-                {images.length > 0 && (
-                  <div className="mt-8 pt-4 border-t">
-                    <h3 className="text-lg font-medium mb-4">Images</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {images.map((img, index) => (
-                        <div
-                          key={index}
-                          className="cursor-pointer rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all transform hover:scale-[1.02] duration-200"
-                          onClick={() => {
-                            setCurrentImageIndex(index);
-                            setShowImageUpload(true);
-                          }}
+                {/* Image gallery section */}
+                {renderImageGallery()}
+              </div>
+            ) : (
+              <div className="space-y-6 pb-16">
+                {/* View mode - Elegant design */}
+                <div>
+                  {/* Title is now handled by EditorWrapper */}
+                  {/* Metadata badges in view mode */}
+                  {(mood || location || weather || tags.length > 0) && (
+                    <div className="flex flex-wrap items-center gap-2 mb-6">
+                      {mood && (
+                        <Badge
+                          variant="outline"
+                          className="flex items-center gap-1 px-3 py-1.5 bg-background/80"
                         >
-                          <div className="aspect-square">
-                            <img
-                              src={img}
-                              alt={`Journal image ${index + 1}`}
-                              className="w-full h-full object-cover hover:opacity-95 transition-opacity"
-                            />
-                          </div>
-                        </div>
+                          {getMoodIcon()}
+                          <span className="ml-1 font-medium">
+                            {mood.charAt(0).toUpperCase() + mood.slice(1)}
+                          </span>
+                        </Badge>
+                      )}
+
+                      {location && (
+                        <Badge
+                          variant="outline"
+                          className="flex items-center gap-1 px-3 py-1.5 bg-background/80"
+                        >
+                          <MapPin className="h-3.5 w-3.5 mr-1" />
+                          <span>{location.name}</span>
+                        </Badge>
+                      )}
+
+                      {weather && (
+                        <Badge
+                          variant="outline"
+                          className="flex items-center gap-1 px-3 py-1.5 bg-background/80"
+                        >
+                          <Cloud className="h-3.5 w-3.5 mr-1" />
+                          <span>
+                            {weather.icon} {weather.condition},{" "}
+                            {weather.temperature}°
+                          </span>
+                        </Badge>
+                      )}
+
+                      {tags.map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant="secondary"
+                          className="px-3 py-1.5"
+                        >
+                          {tag}
+                        </Badge>
                       ))}
                     </div>
+                  )}
+
+                  {/* Editor Content */}
+                  <div className="prose prose-sm md:prose-base max-w-none">
+                    <EditorJSWrapper
+                      key={`view-${editorInstanceKey.current}`}
+                      initialContent={content}
+                      title={title}
+                      readOnly={true}
+                      className="min-h-[200px] border-none shadow-none"
+                      showMainToolbar={false}
+                      editorId={`view-editor-${currentEntry.id}-${editorInstanceKey.current}`}
+                    />
                   </div>
-                )}
+
+                  {/* Image gallery in view mode */}
+                  {renderImageGallery()}
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Dialogs - Keep all dialogs as they were */}
+        {/* Dialogs */}
         {/* Unsaved Changes Warning */}
         <Dialog open={showUnsavedWarning} onOpenChange={setShowUnsavedWarning}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Unsaved Changes</DialogTitle>
               <DialogDescription>
@@ -918,7 +1028,7 @@ export function Editor() {
 
         {/* Location Dialog */}
         <Dialog open={showLocationInput} onOpenChange={setShowLocationInput}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
                 {location ? "Update Location" : "Add Location"}
@@ -932,6 +1042,7 @@ export function Editor() {
                 value={locationName}
                 onChange={(e) => setLocationName(e.target.value)}
                 placeholder="e.g. Coffee Shop, Home, Park"
+                className="bg-background"
               />
               <div className="flex justify-end gap-2">
                 <Button
@@ -948,7 +1059,7 @@ export function Editor() {
 
         {/* Weather Dialog */}
         <Dialog open={showWeatherInput} onOpenChange={setShowWeatherInput}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
                 {weather ? "Update Weather" : "Add Weather"}
@@ -964,6 +1075,7 @@ export function Editor() {
                   value={weatherCondition}
                   onChange={(e) => setWeatherCondition(e.target.value)}
                   placeholder="e.g. Sunny, Rainy, Cloudy"
+                  className="bg-background"
                 />
               </div>
               <div className="space-y-2">
@@ -973,6 +1085,7 @@ export function Editor() {
                   value={temperature}
                   onChange={(e) => setTemperature(Number(e.target.value))}
                   placeholder="Enter temperature"
+                  className="bg-background"
                 />
               </div>
               <div className="space-y-2">
@@ -983,6 +1096,7 @@ export function Editor() {
                   value={weatherIcon}
                   onChange={(e) => setWeatherIcon(e.target.value)}
                   placeholder="e.g. ☀️, 🌧️, 🌤️"
+                  className="bg-background"
                 />
               </div>
               <div className="flex justify-end gap-2 mt-4">
@@ -999,9 +1113,15 @@ export function Editor() {
         </Dialog>
 
         {/* Image Viewer */}
-        <Dialog open={showImageUpload} onOpenChange={setShowImageUpload}>
+        <Dialog
+          open={showImageUpload && currentImageIndex !== null}
+          onOpenChange={(open) => {
+            if (!open) setShowImageUpload(false);
+          }}
+        >
           <DialogContent className="max-w-4xl p-0 overflow-hidden">
             {currentImageIndex !== null &&
+              images.length > 0 &&
               currentImageIndex < images.length && (
                 <div className="flex flex-col">
                   <div className="relative w-full bg-black/90">
@@ -1038,6 +1158,7 @@ export function Editor() {
                           }
                         }}
                       >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
                         Previous
                       </Button>
                       <Button
@@ -1051,6 +1172,7 @@ export function Editor() {
                         }}
                       >
                         Next
+                        <ChevronRight className="h-4 w-4 ml-1" />
                       </Button>
                     </div>
                   </div>

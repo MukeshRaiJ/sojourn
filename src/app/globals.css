@@ -329,3 +329,98 @@
     transform: scale(1.02);
   }
 }
+
+/* Editor.js Dark Mode Compatibility */
+html.dark .ce-toolbar__plus,
+html.dark .ce-toolbar__settings-btn {
+  color: hsl(var(--foreground)) !important;
+  background-color: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+}
+
+html.dark .ce-toolbar__plus:hover,
+html.dark .ce-toolbar__settings-btn:hover {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Fix for inline tools in dark mode */
+html.dark .ce-inline-tool {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.dark .ce-inline-tool:hover {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+html.dark .ce-inline-toolbar {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+html.dark .ce-settings,
+html.dark .ce-conversion-toolbar {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+html.dark .ce-conversion-tool__icon,
+html.dark .ce-settings__button,
+html.dark .ce-inline-toolbar__dropdown {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.dark .ce-paragraph[data-placeholder]:empty::before {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Active state for buttons */
+html.dark .ce-inline-tool--active {
+  color: hsl(var(--primary)) !important;
+  background-color: hsl(var(--muted)) !important;
+}
+
+/* Toolbar backgrounds in dark mode */
+html.dark .ce-toolbar__content,
+html.dark .ce-block__content {
+  background-color: transparent !important;
+}
+
+/* Add glow effect matching your theme */
+html.dark .ce-toolbar--opened,
+html.dark .ce-inline-toolbar,
+html.dark .ce-settings,
+html.dark .ce-conversion-toolbar {
+  box-shadow: var(--journal-glow) !important;
+}
+
+/* Selected block highlighting */
+html.dark .ce-block--selected .ce-block__content {
+  background-color: hsl(var(--muted) / 0.3) !important;
+  border-radius: var(--radius);
+}
+
+/* Plus button between blocks */
+html.dark .ce-popover {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--border)) !important;
+  box-shadow: var(--journal-glow) !important;
+}
+
+html.dark .ce-popover__item-icon {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.dark .ce-popover__item-label {
+  color: hsl(var(--foreground)) !important;
+}
+
+html.dark .ce-popover__item:hover {
+  background-color: hsl(var(--primary)) !important;
+}
+
+html.dark .ce-popover__item:hover .ce-popover__item-icon,
+html.dark .ce-popover__item:hover .ce-popover__item-label {
+  color: hsl(var(--primary-foreground)) !important;
+}

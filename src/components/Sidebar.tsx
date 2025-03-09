@@ -416,7 +416,11 @@ export function Sidebar(): JSX.Element {
 
     // Count words in all entries
     const totalWords = activeEntries.reduce((sum, entry) => {
-      const words = (entry.content || "").split(/\s+/).filter(Boolean).length;
+      const words =
+        typeof entry.content === "string"
+          ? (entry.content || "").split(/\s+/).filter(Boolean).length
+          : (JSON.stringify(entry.content) || "").split(/\s+/).filter(Boolean)
+              .length;
       return sum + words;
     }, 0);
 
